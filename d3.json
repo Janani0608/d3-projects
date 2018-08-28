@@ -1,0 +1,7 @@
+[
+  {"name":"a","score":20},
+  {"name":"b","score":50},
+  {"name":"c","score":80}
+]
+
+https://d3js.org/d3.v5.min.js

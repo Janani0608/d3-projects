@@ -1,0 +1,258 @@
+<html>
+    <head>
+       <script src="d3.js"></script>
+       <style>
+           h1 {
+               background-color: blue;
+               padding:5px;
+               color:white
+           }
+
+           .mainView {
+               display:flex
+           }
+
+           svg {
+               border: solid 1px black;
+           }
+       </style>
+    </head>
+    <body>
+
+        <h1>Airlines Routes</h1>
+        <div class="mainView">
+            <div>
+                <h2>Airlines</h2>
+                <svg id="AirlinesChart">
+
+                </svg>
+            </div>
+            <div>
+                <h2>Map</h2>
+                <svg id="Map">
+
+                </svg>
+            </div>
+        </div>
+        <script>
+
+            let store = {}
+
+            function loadData() {
+                return Promise.all(
+                    [
+                        d3.csv("routes.csv"),
+                        d3.json("countries.geo.json")
+                    ]
+                ).then(
+                    data => {
+                        store.routes = data[0];
+                        store.map = data[1];
+                        return store;
+                    }
+                )
+            }
+
+            function groupByAirlines(data) {
+                let result = data.reduce((result,d) => {
+                    let currAirline = result[d.AirlineID] || {
+                        "AirlineId": d.AirlineID,
+                        "AirlineName": d.AirlineName,
+                        "Count": 0
+                    }
+
+                    currAirline.Count += 1
+
+                    result[d.AirlineID] = currAirline
+
+                    return result
+
+                },{})
+
+                result = Object.keys(result).map((key)=>result[key])
+                return result
+            }
+
+            function getChartConfig(airlines) {
+                let width = 350
+                let height = 400
+                let margin = {
+                    top: 10,
+                    bottom: 50,
+                    left: 130,
+                    right: 10
+                }
+
+                let bodyHeight = height - margin.top - margin.bottom
+                let bodyWidth = width - margin.left - margin.right
+
+                let container = d3.select("#AirlinesChart")
+                               .attr("width",width)
+                               .attr("height",height)
+
+                return { width, height, bodyWidth, bodyHeight, margin, container }
+
+            }
+
+            function getChartScales(airlines) {
+                let {bodyWidth,bodyHeight} = getChartConfig(airlines)
+
+                let maximumCount = d3.max(airlines.map(d => {return d.Count;}))
+
+                let xScale = d3.scaleLinear()
+                            .domain([0,maximumCount])
+                            .range([0,bodyWidth])
+
+                let yScale = d3.scaleBand()
+                            .domain(airlines.map(d => d.AirlineName))
+                            .range([0,bodyHeight])
+                            .padding(0.2)
+
+
+                return { xScale,yScale }
+
+            }
+
+            function drawBarsAirlines(airlines) {
+                 let { margin,container } = getChartConfig(airlines)
+                 let { xScale,yScale } = getChartScales(airlines)
+
+                 let bars = container.append("g")
+                           .style("transform",`translate(${margin.left}px,${margin.top}px)`)
+
+                 bars.selectAll(".bar")
+                     .data(airlines)
+                     .enter()
+                     .append("rect")
+                          .attr("height", yScale.bandwidth())
+                          .attr("y", (d)=>yScale(d.AirlineName))
+                          .attr("width",(d) => xScale(d.Count))
+                          .attr("fill", "#2a5599")
+
+
+            }
+
+            function drawAxesAirlines(airlines) {
+                let { bodyWidth,bodyHeight,height,margin,container } = getChartConfig(airlines)
+                let { xScale,yScale } = getChartScales(airlines)
+
+                let xAxis = d3.axisBottom(xScale)
+                            .ticks(5)
+
+                let yAxis = d3.axisLeft(yScale)
+
+                container.append("g")
+                         .style("transform",`translate(${margin.left}px,${height - margin.bottom}px)`)
+                         .call(xAxis)
+
+                container.append("g")
+                         .style("transform",`translate(${margin.left}px,${margin.top}px)`)
+                         .call(yAxis)
+
+
+            }
+
+            function getMapConfig() {
+                let width = 600
+                let height = 400
+
+                let container = d3.select("#Map")
+                                .attr("width",width)
+                                .attr("height",height)
+
+                return { width,height,container }
+            }
+
+            function getMapProjection(airlines) {
+                let { width,height } = getMapConfig()
+                let projection = d3.geoMercator()
+                                 .scale(97)
+                                 .translate([width/2,height/2+20])
+
+                return projection
+            }
+
+            function groupByAirports(airlines) {
+                let result = airlines.map((result,d) => {
+                    let source = result[d.SourceAirportID] || {
+                       "SourceAirportID": d.SourceAirportID,
+                       "SourceAirportName": d.SourceAirport,
+                       "Latitude": d.SourceLatitude,
+                       "Longitude": d.SourceLongitude,
+                       "City": d.SourceCity,
+                       "Country": d.SourceCountry,
+                       "Count": 0
+                    } 
+
+                    source.Count += 1
+
+                    result[d.SourceAirportID] = source
+
+                    let dest = result[d.DestAirportID] || {
+                        "DestAirportID": d.DestAirportID,
+                        "DestAirportName": d.DestAirport,
+                        "Latitude": d.DestLatitude,
+                        "Longitude": d.DestLongitude,
+                        "City": d.DestCity,
+                        "Country": d.DestCountry,
+                        "Count": 0
+                    }
+
+                    dest.Count += 1
+
+                    result[d.DestAirportID] = dest
+
+                    return result
+                },{})
+
+                result = Object.keys(result).map((key) => result[key])
+                return result
+            }
+
+            function drawCircles(airlines,config,projection) {  
+                let airports = groupByAirports(airlines)
+                
+                config.container.selectAll("circles")
+                                .data(airports)
+                                .enter()
+                                .append("circle")
+                                   .attr("r",1)
+                                   .attr("cx",d => projection([+d.Longitude,+d.Latitude])[0])
+                                   .attr("cy",d => projection([+d.Longitude,+d.Latitude])[1])
+                                   .attr("fill","#2a5599")
+            }
+
+            function drawMap(countries,airlines) {
+                let projection = getMapProjection(airlines)
+                let config  = getMapConfig()
+                
+                let path = d3.geoPath()
+                           .projection(projection)
+
+                config.container.selectAll("path")
+                         .data(airlines.features)
+                         .enter()
+                         .append("path")
+                         .attr("d",d => path(d))
+                         .style("stroke","black")
+                         .style("fill","none")
+
+                drawCircles(countries,config,projection)       
+            }
+
+            function showData() {
+                let airlines = groupByAirlines(store.routes)
+                console.log(airlines)
+                drawBarsAirlines(airlines)
+                drawAxesAirlines(airlines)
+                drawMap(store.routes,store.map)
+
+                let zoom = d3.zoom()
+                d3.select("#Map")
+                  .call(zoom)
+            }
+
+            loadData().then(showData)
+        </script>
+    </body>
+</html>
